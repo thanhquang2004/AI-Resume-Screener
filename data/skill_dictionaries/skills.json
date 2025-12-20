@@ -1,0 +1,261 @@
+{
+  "version": "1.0.0",
+  "description": "IT Skills Dictionary for CV-JD Matching",
+  "categories": {
+    "programming": {
+      "display_name": "Programming Languages",
+      "skills": [
+        "python",
+        "java",
+        "javascript",
+        "typescript",
+        "csharp",
+        "cpp",
+        "golang",
+        "rust",
+        "ruby",
+        "php",
+        "swift",
+        "kotlin",
+        "scala",
+        "r",
+        "matlab",
+        "perl",
+        "lua",
+        "dart",
+        "elixir",
+        "clojure"
+      ]
+    },
+    "framework": {
+      "display_name": "Frameworks & Libraries",
+      "skills": [
+        "django",
+        "flask",
+        "fastapi",
+        "spring",
+        "springboot",
+        "hibernate",
+        "react",
+        "angular",
+        "vue",
+        "nextjs",
+        "nuxt",
+        "svelte",
+        "nodejs",
+        "express",
+        "nestjs",
+        "rails",
+        "laravel",
+        "symfony",
+        "dotnet",
+        "aspnet",
+        "blazor",
+        "jquery",
+        "bootstrap",
+        "tailwind"
+      ]
+    },
+    "database": {
+      "display_name": "Databases",
+      "skills": [
+        "postgresql",
+        "mysql",
+        "mariadb",
+        "oracle",
+        "sqlserver",
+        "sqlite",
+        "mongodb",
+        "redis",
+        "elasticsearch",
+        "cassandra",
+        "dynamodb",
+        "neo4j",
+        "couchdb",
+        "firebase",
+        "supabase",
+        "cockroachdb"
+      ]
+    },
+    "cloud": {
+      "display_name": "Cloud Platforms",
+      "skills": [
+        "aws",
+        "azure",
+        "gcp",
+        "heroku",
+        "digitalocean",
+        "vercel",
+        "netlify",
+        "cloudflare",
+        "alibaba",
+        "oracle_cloud"
+      ]
+    },
+    "devops": {
+      "display_name": "DevOps & Tools",
+      "skills": [
+        "docker",
+        "kubernetes",
+        "terraform",
+        "ansible",
+        "jenkins",
+        "gitlab",
+        "github_actions",
+        "circleci",
+        "travis",
+        "argocd",
+        "helm",
+        "prometheus",
+        "grafana",
+        "elk",
+        "nginx",
+        "apache"
+      ]
+    },
+    "data": {
+      "display_name": "Data Engineering",
+      "skills": [
+        "spark",
+        "hadoop",
+        "kafka",
+        "airflow",
+        "flink",
+        "beam",
+        "dbt",
+        "snowflake",
+        "databricks",
+        "looker",
+        "tableau",
+        "powerbi"
+      ]
+    },
+    "ml": {
+      "display_name": "Machine Learning",
+      "skills": [
+        "tensorflow",
+        "pytorch",
+        "scikit-learn",
+        "keras",
+        "opencv",
+        "pandas",
+        "numpy",
+        "scipy",
+        "huggingface",
+        "langchain",
+        "mlflow"
+      ]
+    },
+    "testing": {
+      "display_name": "Testing",
+      "skills": [
+        "jest",
+        "mocha",
+        "pytest",
+        "junit",
+        "selenium",
+        "cypress",
+        "playwright",
+        "testng",
+        "cucumber",
+        "postman",
+        "jmeter"
+      ]
+    },
+    "mobile": {
+      "display_name": "Mobile Development",
+      "skills": [
+        "android",
+        "ios",
+        "react_native",
+        "flutter",
+        "xamarin",
+        "ionic"
+      ]
+    }
+  },
+  "synonyms": {
+    "js": "javascript",
+    "ts": "typescript",
+    "py": "python",
+    "rb": "ruby",
+    "cs": "csharp",
+    "c#": "csharp",
+    "c++": "cpp",
+    "go": "golang",
+
+    "reactjs": "react",
+    "react.js": "react",
+    "vuejs": "vue",
+    "vue.js": "vue",
+    "angularjs": "angular",
+    "angular.js": "angular",
+    "node": "nodejs",
+    "node.js": "nodejs",
+    "express.js": "express",
+    "next.js": "nextjs",
+    "nuxt.js": "nuxt",
+
+    "spring boot": "springboot",
+    "spring-boot": "springboot",
+    ".net": "dotnet",
+    "asp.net": "aspnet",
+
+    "postgres": "postgresql",
+    "mongo": "mongodb",
+    "elastic": "elasticsearch",
+    "sql server": "sqlserver",
+    "ms sql": "sqlserver",
+
+    "k8s": "kubernetes",
+    "kube": "kubernetes",
+    "tf": "terraform",
+    "gh actions": "github_actions",
+    "github-actions": "github_actions",
+
+    "amazon web services": "aws",
+    "google cloud": "gcp",
+    "google cloud platform": "gcp",
+    "microsoft azure": "azure",
+
+    "sklearn": "scikit-learn",
+    "sk-learn": "scikit-learn",
+    "tf": "tensorflow",
+    "hf": "huggingface",
+    "hugging face": "huggingface",
+
+    "rn": "react_native",
+    "react native": "react_native"
+  },
+  "skill_weights": {
+    "python": 1.0,
+    "java": 1.0,
+    "javascript": 1.0,
+    "typescript": 1.0,
+    "golang": 1.0,
+    "rust": 1.0,
+
+    "react": 0.9,
+    "angular": 0.9,
+    "vue": 0.9,
+    "django": 0.9,
+    "spring": 0.9,
+    "springboot": 0.9,
+
+    "docker": 0.8,
+    "kubernetes": 0.9,
+    "aws": 0.9,
+    "gcp": 0.8,
+    "azure": 0.8,
+
+    "postgresql": 0.8,
+    "mysql": 0.7,
+    "mongodb": 0.8,
+    "redis": 0.7,
+
+    "git": 0.5,
+    "linux": 0.6,
+    "agile": 0.4,
+    "scrum": 0.4
+  }
+}
