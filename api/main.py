@@ -1,31 +1,36 @@
 """
-FastAPI Application - AI Resume Screener API
+FastAPI Application - AI Resume Screener API with MySQL Database
 """
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from typing import List, Optional
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 import sys
 from pathlib import Path
+import uuid
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.parsers import CVParser
-from src.preprocessing import SkillExtractor, clean_text
+from src.preprocessing import SkillExtractor
 from src.models import CVJobMatcher
 from src.schemas import (
-    JobPosting, JobPostingCreate, JobRequirements,
+    JobPosting, JobRequirements, JobLevel, JobType,
     ExtractedCV, MatchResult, CompanyRanking, MatchCategory
 )
 from src.crawlers import ITViecCrawler, TopDevCrawler
+from src.database import get_db, init_db
+from src.database.crud_cv import create_cv, get_cv as get_cv_db, get_all_cvs, cv_model_to_schema
+from src.database.crud_job import create_job, get_job as get_job_db, get_all_jobs, job_model_to_schema
+from src.database.crud_match import create_match_result, get_top_matches_for_cv, match_model_to_schema
 
 # Initialize app
 app = FastAPI(
     title="AI Resume Screener",
-    description="API for matching CVs to Job postings and ranking companies",
-    version="1.0.0",
+    description="API for matching CVs to Job postings with MySQL database",
+    version="2.0.0",
 )
 
 # CORS
@@ -42,9 +47,16 @@ cv_parser = CVParser()
 skill_extractor = SkillExtractor()
 matcher = CVJobMatcher()
 
-# In-memory storage (replace with database in production)
-jobs_db: dict[str, JobPosting] = {}
-cvs_db: dict[str, ExtractedCV] = {}
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup."""
+    try:
+        init_db()
+        print("✅ Database initialized successfully")
+    except Exception as e:
+        print(f"❌ Database initialization failed: {e}")
+        raise
 
 
 # Request/Response models
@@ -66,34 +78,30 @@ class MatchRequest(BaseModel):
     top_n: int = 10
 
 
-class HealthResponse(BaseModel):
-    status: str
-    version: str
+# ===== Health Check =====
 
-
-# Routes
-@app.get("/", response_model=HealthResponse)
+@app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"status": "healthy", "version": "1.0.0"}
+    return {"status": "healthy", "version": "2.0.0", "database": "mysql"}
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy", "version": "1.0.0"}
+@app.get("/health")
+async def health(db: Session = Depends(get_db)):
+    """Health check with database connection test."""
+    try:
+        # Test database connection
+        db.execute("SELECT 1")
+        return {"status": "healthy", "version": "2.0.0", "database": "connected"}
+    except Exception as e:
+        return {"status": "unhealthy", "version": "2.0.0", "database": f"error: {str(e)}"}
 
 
 # ===== CV Endpoints =====
 
 @app.post("/api/v1/cv/upload")
-async def upload_cv(file: UploadFile = File(...)):
-    """
-    Upload and parse a CV file (PDF or DOCX).
-    
-    Returns extracted information including skills, experience, education.
-    """
-    # Validate file type
+async def upload_cv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Upload and parse a CV file (PDF or DOCX)."""
     if not file.filename:
         raise HTTPException(400, "No filename provided")
     
@@ -102,15 +110,12 @@ async def upload_cv(file: UploadFile = File(...)):
         raise HTTPException(400, f"Unsupported file type: {suffix}. Use PDF or DOCX.")
     
     try:
-        # Read file
         content = await file.read()
-        
-        # Parse CV
         cv_data = cv_parser.parse_bytes(content, file.filename)
         extracted = cv_parser.extract_info(cv_data)
         
-        # Store in memory
-        cvs_db[extracted.cv_id] = extracted
+        # Store in database
+        create_cv(db, extracted)
         
         return {
             "cv_id": extracted.cv_id,
@@ -120,35 +125,39 @@ async def upload_cv(file: UploadFile = File(...)):
             "skills": extracted.all_skills,
             "experience_years": extracted.total_experience_years,
             "highest_education": extracted.highest_education.value,
-            "message": "CV processed successfully",
+            "message": "CV processed and saved to database",
         }
-    
     except Exception as e:
         raise HTTPException(500, f"Failed to process CV: {str(e)}")
 
 
 @app.get("/api/v1/cv/{cv_id}")
-async def get_cv(cv_id: str):
+async def get_cv(cv_id: str, db: Session = Depends(get_db)):
     """Get extracted CV by ID."""
-    if cv_id not in cvs_db:
+    db_cv = get_cv_db(db, cv_id)
+    if not db_cv:
         raise HTTPException(404, f"CV not found: {cv_id}")
     
-    cv = cvs_db[cv_id]
+    cv = cv_model_to_schema(db_cv)
     return cv.model_dump()
 
 
 @app.get("/api/v1/cvs")
-async def list_cvs():
+async def list_cvs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all uploaded CVs."""
+    db_cvs = get_all_cvs(db, skip, limit)
+    
     return {
-        "count": len(cvs_db),
+        "count": len(db_cvs),
         "cvs": [
             {
                 "cv_id": cv.cv_id,
                 "name": cv.name,
-                "skills_count": len(cv.all_skills),
+                "skills_count": len(cv.all_skills or []),
+                "experience_years": cv.total_experience_years,
+                "created_at": cv.created_at.isoformat() if cv.created_at else None,
             }
-            for cv in cvs_db.values()
+            for cv in db_cvs
         ]
     }
 
@@ -156,209 +165,236 @@ async def list_cvs():
 # ===== Job Endpoints =====
 
 @app.post("/api/v1/jobs")
-async def create_job(job: JobInput):
-    """Create a new job posting."""
-    import uuid
-    
-    job_id = f"job_{uuid.uuid4().hex[:8]}"
-    
-    # Extract skills if not provided
-    skills = job.required_skills
-    if not skills and job.requirements_text:
-        skills = skill_extractor.extract(job.requirements_text)
+async def add_job(job_input: JobInput, db: Session = Depends(get_db)):
+    """Add a new job posting manually."""
+    job_id = f"manual_{uuid.uuid4().hex[:8]}"
     
     job_posting = JobPosting(
         job_id=job_id,
-        title=job.title,
-        company_name=job.company_name,
-        description=job.description,
-        requirements_text=job.requirements_text,
+        title=job_input.title,
+        company_name=job_input.company_name,
+        description=job_input.description,
+        requirements_text=job_input.requirements_text,
         requirements=JobRequirements(
-            required_skills=skills,
-            experience_years_min=job.experience_years_min,
+            required_skills=job_input.required_skills,
+            experience_years_min=job_input.experience_years_min,
         ),
-        location=job.location,
-        salary_min=job.salary_min,
-        salary_max=job.salary_max,
+        location=job_input.location,
+        salary_min=job_input.salary_min,
+        salary_max=job_input.salary_max,
         source="manual",
     )
     
-    jobs_db[job_id] = job_posting
+    create_job(db, job_posting)
     
     return {
         "job_id": job_id,
-        "title": job.title,
-        "company_name": job.company_name,
-        "skills_extracted": skills,
-        "message": "Job created successfully",
+        "message": "Job posting added successfully",
+        "job": job_posting.model_dump(),
     }
 
 
 @app.get("/api/v1/jobs/{job_id}")
-async def get_job(job_id: str):
+async def get_job(job_id: str, db: Session = Depends(get_db)):
     """Get job posting by ID."""
-    if job_id not in jobs_db:
+    db_job = get_job_db(db, job_id)
+    if not db_job:
         raise HTTPException(404, f"Job not found: {job_id}")
     
-    return jobs_db[job_id].model_dump()
+    job = job_model_to_schema(db_job)
+    return job.model_dump()
 
 
 @app.get("/api/v1/jobs")
-async def list_jobs():
+async def list_jobs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all job postings."""
+    db_jobs = get_all_jobs(db, skip, limit)
+    
     return {
-        "count": len(jobs_db),
+        "count": len(db_jobs),
         "jobs": [
             {
                 "job_id": job.job_id,
                 "title": job.title,
                 "company_name": job.company_name,
-                "skills_count": len(job.requirements.required_skills),
+                "location": job.location,
+                "source": job.source,
+                "required_skills": job.required_skills or [],
+                "created_at": job.created_at.isoformat() if job.created_at else None,
             }
-            for job in jobs_db.values()
+            for job in db_jobs
         ]
     }
 
 
 @app.post("/api/v1/jobs/crawl/{source}")
-async def crawl_jobs(source: str, pages: int = 1):
+async def crawl_jobs(
+    source: str, 
+    pages: int = 1, 
+    keywords: Optional[str] = None,
+    location: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     """
     Crawl jobs from a source (itviec, topdev).
     
-    This uses stub data for demo purposes.
+    Args:
+        source: Source website (itviec or topdev)
+        pages: Number of pages to crawl (default: 1)
+        keywords: Search keywords (comma-separated)
+        location: Location filter (e.g., "Ho Chi Minh", "Ha Noi")
     """
     if source.lower() not in ["itviec", "topdev"]:
-        raise HTTPException(400, f"Unknown source: {source}")
+        raise HTTPException(400, f"Unknown source: {source}. Available: itviec, topdev")
     
-    crawler = ITViecCrawler() if source.lower() == "itviec" else TopDevCrawler()
-    
-    crawled = []
-    for job in crawler.crawl(pages=pages):
-        jobs_db[job.job_id] = job
-        crawled.append({
-            "job_id": job.job_id,
-            "title": job.title,
-            "company_name": job.company_name,
-        })
-    
-    return {
-        "source": source,
-        "jobs_crawled": len(crawled),
-        "jobs": crawled,
-    }
+    try:
+        # Parse keywords
+        keyword_list = [k.strip() for k in keywords.split(',')] if keywords else None
+        
+        # Create crawler
+        crawler = ITViecCrawler() if source.lower() == "itviec" else TopDevCrawler()
+        
+        # Crawl jobs
+        crawled = []
+        errors = []
+        
+        for job in crawler.crawl(keywords=keyword_list, location=location, pages=pages):
+            try:
+                # Save to database
+                create_job(db, job)
+                crawled.append({
+                    "job_id": job.job_id,
+                    "title": job.title,
+                    "company_name": job.company_name,
+                    "location": job.location,
+                    "skills": job.requirements.required_skills[:5] if job.requirements.required_skills else [],
+                })
+            except Exception as e:
+                errors.append({
+                    "job_id": job.job_id,
+                    "title": job.title,
+                    "error": str(e)
+                })
+        
+        return {
+            "source": source,
+            "pages_crawled": pages,
+            "keywords": keyword_list,
+            "location": location,
+            "jobs_crawled": len(crawled),
+            "jobs_saved": len(crawled),
+            "errors": len(errors),
+            "jobs": crawled[:20],  # First 20 jobs
+            "message": f"Successfully crawled and saved {len(crawled)} jobs from {source}",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Crawling failed: {str(e)}")
 
 
 # ===== Matching Endpoints =====
 
 @app.post("/api/v1/match")
-async def match_cv_to_jobs(request: MatchRequest):
-    """
-    Match a CV against job postings and return ranked companies.
-    
-    This is the main feature: for 1 CV, get a ranked list of potential companies.
-    """
-    # Get CV
-    if request.cv_id not in cvs_db:
+async def match_cv_to_jobs(request: MatchRequest, db: Session = Depends(get_db)):
+    """Match a CV against job postings and return ranked companies."""
+    # Get CV from database
+    db_cv = get_cv_db(db, request.cv_id)
+    if not db_cv:
         raise HTTPException(404, f"CV not found: {request.cv_id}")
     
-    cv = cvs_db[request.cv_id]
+    cv = cv_model_to_schema(db_cv)
     
-    # Get jobs to match against
+    # Get jobs from database
     if request.job_ids:
-        jobs = [jobs_db[jid] for jid in request.job_ids if jid in jobs_db]
-        if not jobs:
-            raise HTTPException(404, "No valid job IDs found")
+        jobs = []
+        for job_id in request.job_ids:
+            db_job = get_job_db(db, job_id)
+            if db_job:
+                jobs.append(job_model_to_schema(db_job))
     else:
-        jobs = list(jobs_db.values())
-        if not jobs:
-            raise HTTPException(400, "No jobs in database. Add jobs first or use /api/v1/jobs/crawl")
+        db_jobs = get_all_jobs(db)
+        jobs = [job_model_to_schema(job) for job in db_jobs]
+    
+    if not jobs:
+        raise HTTPException(404, "No jobs found to match against")
     
     # Perform matching
     ranking = matcher.match_cv_to_jobs(cv, jobs, top_n=request.top_n)
     
-    # Format response
-    return {
-        "cv_id": ranking.cv_id,
-        "candidate_name": ranking.candidate_name,
-        "candidate_skills": ranking.candidate_skills,
-        "total_jobs_analyzed": ranking.total_jobs_analyzed,
-        "summary": {
-            "potential_count": ranking.potential_count,
-            "review_needed_count": ranking.review_needed_count,
-            "not_suitable_count": ranking.not_suitable_count,
-        },
-        "top_companies": ranking.top_companies,
-        "common_skill_gaps": ranking.common_skill_gaps,
-        "rankings": [
-            {
-                "rank": r.rank,
-                "job_id": r.job_id,
-                "title": r.job_title,
-                "company_name": r.company_name,
-                "score": r.score.overall_score,
-                "category": r.score.category.value,
-                "skill_score": r.score.skill_score,
-                "matched_skills": r.gap_analysis.matched_skills,
-                "missing_skills": r.gap_analysis.missing_skills,
-                "recommendations": r.gap_analysis.recommendations,
-            }
-            for r in ranking.rankings
-        ]
-    }
+    # Save match results to database
+    for match_result in ranking.rankings:
+        try:
+            create_match_result(db, match_result)
+        except Exception as e:
+            print(f"Warning: Could not save match result: {e}")
+    
+    return ranking.model_dump()
 
 
-@app.get("/api/v1/match/{cv_id}/{job_id}")
-async def match_single(cv_id: str, job_id: str):
-    """Match a specific CV against a specific job."""
-    if cv_id not in cvs_db:
+@app.post("/api/v1/match/{cv_id}/{job_id}")
+async def match_cv_to_specific_job(cv_id: str, job_id: str, db: Session = Depends(get_db)):
+    """Match a specific CV to a specific job."""
+    # Get CV
+    db_cv = get_cv_db(db, cv_id)
+    if not db_cv:
         raise HTTPException(404, f"CV not found: {cv_id}")
-    if job_id not in jobs_db:
+    
+    # Get Job
+    db_job = get_job_db(db, job_id)
+    if not db_job:
         raise HTTPException(404, f"Job not found: {job_id}")
     
-    cv = cvs_db[cv_id]
-    job = jobs_db[job_id]
+    cv = cv_model_to_schema(db_cv)
+    job = job_model_to_schema(db_job)
     
+    # Perform matching
     result = matcher.match(cv, job)
     
+    # Save to database
+    try:
+        create_match_result(db, result)
+    except Exception as e:
+        print(f"Warning: Could not save match result: {e}")
+    
+    return result.model_dump()
+
+
+@app.get("/api/v1/match/{cv_id}/top")
+async def get_top_matches(cv_id: str, limit: int = 10, db: Session = Depends(get_db)):
+    """Get top matches for a CV from database."""
+    db_matches = get_top_matches_for_cv(db, cv_id, limit)
+    
+    if not db_matches:
+        raise HTTPException(404, f"No matches found for CV: {cv_id}")
+    
+    matches = []
+    for db_match in db_matches:
+        db_job = get_job_db(db, db_match.job_id)
+        if db_job:
+            match = match_model_to_schema(db_match, db_job.title, db_job.company_name)
+            matches.append(match.model_dump())
+    
     return {
-        "cv_id": result.cv_id,
-        "job_id": result.job_id,
-        "job_title": result.job_title,
-        "company_name": result.company_name,
-        "score": {
-            "overall": result.score.overall_score,
-            "category": result.score.category.value,
-            "skill_score": result.score.skill_score,
-            "experience_score": result.score.experience_score,
-            "text_similarity": result.score.text_similarity,
-        },
-        "gap_analysis": {
-            "matched_skills": result.gap_analysis.matched_skills,
-            "missing_skills": result.gap_analysis.missing_skills,
-            "extra_skills": result.gap_analysis.extra_skills,
-            "skill_match_ratio": result.gap_analysis.skill_match_ratio,
-            "recommendations": result.gap_analysis.recommendations,
-        }
+        "cv_id": cv_id,
+        "matches_found": len(matches),
+        "top_matches": matches,
     }
 
 
-# ===== Skills Endpoints =====
+# ===== Utility Endpoints =====
 
 @app.post("/api/v1/skills/extract")
-async def extract_skills(text: str = Form(...)):
-    """Extract skills from text."""
+async def extract_skills(text: str):
+    """Extract skills from arbitrary text."""
     skills = skill_extractor.extract(text)
     categorized = skill_extractor.extract_with_context(text)
     
     return {
-        "text_length": len(text),
         "skills_found": len(skills),
         "skills": skills,
         "categorized": categorized,
     }
 
 
-# Run with: uvicorn api.main:app --reload
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

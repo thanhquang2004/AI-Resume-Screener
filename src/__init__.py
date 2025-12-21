@@ -7,7 +7,7 @@ For each CV, generates a ranked list of potential companies from high to low.
 from .schemas import (
     JobPosting, JobPostingCreate, JobRequirements, JobLevel, JobType,
     CVData, ExtractedCV, Education, Experience, EducationLevel,
-    MatchResult, MatchScore, MatchCategory, GapAnalysis, CompanyRanking, RankedJob,
+    MatchResult, MatchScore, MatchCategory, GapAnalysis, CompanyRanking,
 )
 from .parsers import CVParser, PDFParser, DocxParser
 from .preprocessing import TextCleaner, SkillExtractor, clean_text
@@ -22,7 +22,7 @@ __all__ = [
     # Schemas
     "JobPosting", "JobPostingCreate", "JobRequirements", "JobLevel", "JobType",
     "CVData", "ExtractedCV", "Education", "Experience", "EducationLevel",
-    "MatchResult", "MatchScore", "MatchCategory", "GapAnalysis", "CompanyRanking", "RankedJob",
+    "MatchResult", "MatchScore", "MatchCategory", "GapAnalysis", "CompanyRanking",
     
     # Parsers
     "CVParser", "PDFParser", "DocxParser",
