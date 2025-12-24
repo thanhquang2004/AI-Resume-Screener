@@ -54,7 +54,7 @@ class JobModel(Base):
     __tablename__ = "jobs"
     
     # Primary key
-    job_id = Column(String(50), primary_key=True, index=True)
+    job_id = Column(String(255), primary_key=True, index=True)
     
     # Basic info
     title = Column(String(255), nullable=False, index=True)
@@ -111,7 +111,7 @@ class MatchResultModel(Base):
     
     # Foreign keys
     cv_id = Column(String(50), ForeignKey("cvs.cv_id"), nullable=False, index=True)
-    job_id = Column(String(50), ForeignKey("jobs.job_id"), nullable=False, index=True)
+    job_id = Column(String(255), ForeignKey("jobs.job_id"), nullable=False, index=True)
     
     # Match scores
     overall_score = Column(Float, nullable=False)

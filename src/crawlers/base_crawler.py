@@ -13,6 +13,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+import undetected_chromedriver as uc  # Bypass Cloudflare bot detection
 
 logger = logging.getLogger(__name__)
 
@@ -126,43 +127,37 @@ class BaseCrawler(ABC):
             logger.info(f"Crawled: {current} items")
     
     def init_driver(self):
-        """Initialize Selenium WebDriver."""
+        """Initialize Selenium WebDriver with Cloudflare bypass."""
         if self.driver:
             return
         
         try:
-            chrome_options = Options()
+            # Use undetected-chromedriver to bypass Cloudflare
+            chrome_options = uc.ChromeOptions()
             
             if self.headless:
                 chrome_options.add_argument('--headless=new')
             
-            # Essential options for stability
+            # Essential options for Docker stability
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--window-size=1920,1080')
             
-            # Anti-detection
-            chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-            chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
+            # Initialize undetected-chromedriver (bypasses Cloudflare)
+            logger.info("Initializing undetected Chrome WebDriver (Cloudflare bypass)...")
+            self.driver = uc.Chrome(
+                options=chrome_options,
+                version_main=None,  # Auto-detect Chrome version
+                use_subprocess=True,
+                headless=self.headless,  # Pass headless to uc.Chrome
+            )
             
-            # Random user agent
-            user_agents = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            ]
-            chrome_options.add_argument(f'user-agent={random.choice(user_agents)}')
+            # Set timeouts for Cloudflare challenges (they can take 5-10 seconds)
+            self.driver.set_page_load_timeout(60)  # 60 seconds for Cloudflare challenges
+            self.driver.set_script_timeout(30)     # 30 seconds for scripts
             
-            # Initialize driver
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            
-            # Set page load timeout
-            self.driver.set_page_load_timeout(30)
-            
-            logger.info("✅ Selenium WebDriver initialized")
+            logger.info("✅ Undetected Chrome WebDriver initialized (Cloudflare bypass enabled)")
         except Exception as e:
             logger.error(f"Failed to initialize WebDriver: {e}")
             raise

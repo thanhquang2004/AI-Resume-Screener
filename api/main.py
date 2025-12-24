@@ -240,26 +240,40 @@ async def crawl_jobs(
     
     Args:
         source: Source website (itviec or topdev)
-        pages: Number of pages to crawl (default: 1)
+        pages: Number of pages to crawl (default: 1, max: 5)
         keywords: Search keywords (comma-separated)
         location: Location filter (e.g., "Ho Chi Minh", "Ha Noi")
+        
+    Note: This is a POST endpoint, not GET. Use:
+        curl -X POST "http://localhost:8000/api/v1/jobs/crawl/itviec?pages=2&keywords=python"
     """
     if source.lower() not in ["itviec", "topdev"]:
         raise HTTPException(400, f"Unknown source: {source}. Available: itviec, topdev")
+    
+    # Limit pages to prevent very long requests
+    if pages > 5:
+        pages = 5
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting crawl: source={source}, pages={pages}, keywords={keywords}")
     
     try:
         # Parse keywords
         keyword_list = [k.strip() for k in keywords.split(',')] if keywords else None
         
         # Create crawler
+        logger.info(f"Creating {source} crawler...")
         crawler = ITViecCrawler() if source.lower() == "itviec" else TopDevCrawler()
         
         # Crawl jobs
         crawled = []
         errors = []
         
-        for job in crawler.crawl(keywords=keyword_list, location=location, pages=pages):
+        logger.info(f"Starting crawl iteration...")
+        for idx, job in enumerate(crawler.crawl(keywords=keyword_list, location=location, pages=pages), 1):
             try:
+                logger.info(f"Processing job {idx}: {job.title}")
                 # Save to database
                 create_job(db, job)
                 crawled.append({
@@ -270,11 +284,16 @@ async def crawl_jobs(
                     "skills": job.requirements.required_skills[:5] if job.requirements.required_skills else [],
                 })
             except Exception as e:
+                # Rollback on error to allow next job to be saved
+                db.rollback()
+                logger.error(f"Error saving job {idx}: {e}")
                 errors.append({
                     "job_id": job.job_id,
                     "title": job.title,
                     "error": str(e)
                 })
+        
+        logger.info(f"Crawl complete: {len(crawled)} jobs saved")
         
         return {
             "source": source,
@@ -288,6 +307,7 @@ async def crawl_jobs(
             "message": f"Successfully crawled and saved {len(crawled)} jobs from {source}",
         }
     except Exception as e:
+        logger.error(f"Crawling failed: {e}", exc_info=True)
         raise HTTPException(500, f"Crawling failed: {str(e)}")
 
 
